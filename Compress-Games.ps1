@@ -4,7 +4,7 @@
 .DESCRIPTION
     Guide used from batocera wiki https://wiki.batocera.org/disk_image_compression
     BIN/CUE will be compressed into CHD with chdman
-    ISO will be commpressed into CSO with maxcso or to CHD since pcsx2 supports CHD since 1.7
+    ISO will be commpressed into CHD since pcsx2 supports CHD since 1.7
     CSO to CHD via decompressing to ISO and then into CHD
     PS3/Folders Games will be compressed with mksquashfs
 .EXAMPLE
@@ -28,10 +28,10 @@
 
 [CmdletBinding()]
 param (
-    [Parameter()]
-    [Alias("BatoceraPath")]
+    [Parameter(Mandatory = $true)]
+    [Alias("RomPath")]
     [String]
-    $Path = "/mnt/batocera/roms",
+    $Path,
     [String]
     $CHDMan = "/usr/bin/chdman",
     [String]
@@ -54,12 +54,11 @@ function Compress-Game {
         [String]
         $Destination,
         [String]
-        [ValidateSet("ISO", "CUE", "Directory", "ps3")]
+        [ValidateSet("ISO", "CUE", "CSO", "Directory", "ps3")]
         $Format,
         [Switch]
         $Whatif
     )
-
 
     # Testing source file
     if (-not (Test-Path -LiteralPath $Source)) {
@@ -69,26 +68,6 @@ function Compress-Game {
 
     $Game = Get-ChildItem -LiteralPath $Source
 
-    # if ($Format -eq "iso") {
-    #     Write-Verbose "Source format is ISO"
-    #     $CompressedFile = $Game.Fullname -replace "iso", "cso"
-    #     $Command = "'$MaxCSO '$($Game.FullName)''"
-    #     Write-Verbose "Compressing $($Game.FullName)"
-    #     if (-not (Test-Path -LiteralPath $CompressedFile)) {
-    #         if ($whatif) {
-    #             "$MaxCSO '$($Game.FullName)'"
-    #         }
-    #         else {
-    #             & $MaxCSO "$($Game.FullName)"
-    #         }
-    #     }
-    #     else {
-    #         if (-not $Silent) {
-    #             Write-Warning "$($Game.Name) already compressed"
-    #         }
-    #     }
-
-    # }
     if ($Format -eq "iso") {
         Write-Verbose "Source format is ISO"
         $CompressedFile = $Game.Fullname -replace "iso", "chd"
@@ -157,10 +136,13 @@ function Compress-Game {
         Write-Verbose "Compressing $($Game.FullName)"
         if (-not (Test-Path -LiteralPath $CompressedFile)) {
             if ($whatif) {
-                "$CHDMan createcd -i '$($Game.FullName)' -o '$CompressedFile' --force"
+                "$MaxCSO '$($Game.FullName)' --decompress -o '$tempfile'"
+                "$CHDMan createcd -i '$tempfile' -o '$CompressedFile' --force"
             }
             else {
+                Write-Verbose "Decompressing CSO"
                 & $MaxCSO "$($Game.FullName)" --decompress -o "$tempfile"
+                Write-Verbose "Compressing CHD"
                 & $CHDMan createcd -i "$tempfile" -o "$CompressedFile" --force
             }
         }
@@ -169,87 +151,92 @@ function Compress-Game {
                 Write-Warning "$($Game.Name) already compressed"
             }
         }
+    }
+}
 
+if ($Whatif) {
+    $Global:whatif = $Whatif
+}
+
+foreach ($System in $Systems) {
+
+    Write-Verbose "Looking for $System"
+
+    # PSX Games
+    if ($System -eq "PS") {
+
+        if (-not $Silent) {
+            Write-Output "Checking PlayStation Games"
+        }
+
+        # Compress BIN/CUE to CHD
+        $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.cue" }
+        foreach ($Game in $Games) {
+            Write-Output "Working on Game: $Game"
+            Write-Verbose "Working on Game: $($Game.FullName)"
+            Compress-Game -Source $Game.FullName -Format "cue"
+        }
     }
 
-    if ($Whatif) {
-        $Global:whatif = $Whatif
-    }
-
-    foreach ($System in $Systems) {
-
-        Write-Verbose "Looking for $System"
-
-
-        # PSX Games
-        if ($System -eq "PS") {
-
-            if (-not $Silent) {
-                Write-Output "Checking PlayStation Games"
-            }
-
-            # Compress BIN/CUE to CHD
-            $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.cue" }
-            foreach ($Game in $Games) {
-                Write-Verbose "Working on Game: $($Game.FullName)"
-                Compress-Game -Source $Game.FullName -Format "cue"
-            }
+    # PS2 Games
+    if ($System -eq "PS2") {
+        if (-not $Silent) {
+            Write-Output "Checking PlayStation 2 Games"
         }
 
-        # PS2 Games
-        if ($System -eq "PS2") {
-            if (-not $Silent) {
-                Write-Output "Checking PlayStation 2 Games"
-            }
-
-            # Compress ISOs to CHD
-            $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.iso" }
-            foreach ($Game in $Games) {
-                Write-Verbose "Working on Game: $($Game.FullName)"
-                Compress-Game -Source $Game.FullName -Format "iso"
-            }
-
-            # Compress ISOs to CSO
-            $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.iso" }
-            foreach ($Game in $Games) {
-                Write-Verbose "Working on Game: $($Game.FullName)"
-                Compress-Game -Source $Game.FullName -Format "iso"
-            }
-
-            # Compress BIN/CUE to CHD
-            $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.cue" }
-            foreach ($Game in $Games) {
-                Write-Verbose "Working on Game: $($Game.FullName)"
-                Compress-Game -Source $Game.FullName -Format "cue"
-            }
+        # Compress ISOs to CHD
+        $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.iso" }
+        foreach ($Game in $Games) {
+            Write-Output "Working on Game: $Game"
+            Write-Verbose "Working on Game: $($Game.FullName)"
+            Compress-Game -Source $Game.FullName -Format "iso"
         }
 
-        # PS3 Games
-        if ($System -eq "PS3") {
-            if (-not $Silent) {
-                Write-Output "Checking PlayStation 3 Games"
-            }
-
-            # Compress Folders to Squashfs
-            $Games = Get-ChildItem $Path/$($System.ToLower()) -Directory  | Where-Object { $_.Name -like "*.ps3" }
-            foreach ($Game in $Games) {
-                Write-Verbose "Working on Game: $($Game.FullName)"
-                Compress-Game -Source $Game.FullName -Format "Directory"
-            }
+        # Compress ISOs to CSO
+        $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.cso" }
+        foreach ($Game in $Games) {
+            Write-Output "Working on Game: $Game"
+            Write-Verbose "Working on Game: $($Game.FullName)"
+            Compress-Game -Source $Game.FullName -Format "cso"
         }
 
-        # Dreamcast Games
-        if ($System -eq "Dreamcast") {
-
-            if (-not $Silent) {
-                Write-Output "Checking Dreamcast Games"
-            }
-
-            # Compress BIN/CUE to CHD
-            $Games = Get-ChildItem $Path/roms/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.cue" }
-            foreach ($Game in $Games) {
-                Write-Verbose "Working on Game: $($Game.FullName)"
-                Compress-Game -Source $Game.FullName -Format "cue"
-            }
+        # Compress BIN/CUE to CHD
+        $Games = Get-ChildItem $Path/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.cue" }
+        foreach ($Game in $Games) {
+            Write-Output "Working on Game: $Game"
+            Write-Verbose "Working on Game: $($Game.FullName)"
+            Compress-Game -Source $Game.FullName -Format "cue"
         }
     }
+
+    # PS3 Games
+    if ($System -eq "PS3") {
+        if (-not $Silent) {
+            Write-Output "Checking PlayStation 3 Games"
+        }
+
+        # Compress Folders to Squashfs
+        $Games = Get-ChildItem $Path/$($System.ToLower()) -Directory  | Where-Object { $_.Name -like "*.ps3" }
+        foreach ($Game in $Games) {
+            Write-Output "Working on Game: $Game"
+            Write-Verbose "Working on Game: $($Game.FullName)"
+            Compress-Game -Source $Game.FullName -Format "Directory"
+        }
+    }
+
+    # Dreamcast Games
+    if ($System -eq "Dreamcast") {
+
+        if (-not $Silent) {
+            Write-Output "Checking Dreamcast Games"
+        }
+
+        # Compress BIN/CUE to CHD
+        $Games = Get-ChildItem $Path/roms/$($System.ToLower()) -File -Recurse | Where-Object { $_.Name -like "*.cue" }
+        foreach ($Game in $Games) {
+            Write-Output "Working on Game: $Game"
+            Write-Verbose "Working on Game: $($Game.FullName)"
+            Compress-Game -Source $Game.FullName -Format "cue"
+        }
+    }
+}
